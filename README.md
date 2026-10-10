@@ -1,127 +1,149 @@
-# ✈️ TripMate AI — A Multi-Agent Travel Planner with LangGraph
+<div align="center">
 
-An open-source AI travel planner that turns a natural-language trip request into a practical travel plan with flight suggestions, hotel ideas, and a day-by-day itinerary. The project uses a multi-agent workflow built with LangGraph, LangChain, and FastAPI.
+# ✈️ TripMate AI
 
-## Why this project?
+### A multi-agent travel planner built on LangGraph with live flight data and persistent memory
 
-Planning a trip usually means jumping between multiple websites, tools, and spreadsheets. This project brings that flow into one experience by combining:
+*Type "Plan a 3-day trip from Dhaka to Tokyo on a $1200 budget" and four agents research it together.<br/>
+You get live flights, hotel picks and a day-by-day itinerary.*
 
-- a flight-search agent,
-- a hotel-research agent,
-- an itinerary-planning agent, and
-- a final response agent,
+<br/>
 
-all coordinated through a LangGraph workflow.
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1.2-1C3C3C)
+![LangSmith](https://img.shields.io/badge/LangSmith-tracing-F97316)
+![Groq](https://img.shields.io/badge/Groq-compound--mini-F55036)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-checkpointer-4169E1?logo=postgresql&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
+![Tavily](https://img.shields.io/badge/Tavily-web%20search-0EA5E9)
+![AviationStack](https://img.shields.io/badge/AviationStack-live%20flights-111827)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 
-## Features
+</div>
 
-- ✈️ Flight research using AviationStack
-- 🏨 Hotel suggestions using Tavily search
-- 🧠 Multi-agent orchestration with LangGraph
-- 📝 Structured travel itinerary generation
-- 🌐 FastAPI backend with a simple web interface
-- 💾 Conversation state persistence using PostgreSQL
-- ⚡ LLM-powered responses with Groq
+---
 
-## Tech Stack
+## 💡 What it does
 
-- Python 3.10+
-- FastAPI
-- Jinja2 + HTML/CSS/JavaScript frontend
-- LangGraph
-- LangChain
-- Groq LLMs
-- PostgreSQL
-- Tavily API
-- AviationStack API
+TripMate AI turns a natural-language trip request into a structured plan by passing it through a **LangGraph pipeline of four specialised agents**. They share one typed state, and every conversation is stored in **PostgreSQL**, so you can come back to it later.
 
-## Project Structure
+> 🔁 **This is v1.** Its tools are written directly in Python.
+> [`MulitAgent-With-MCPs`](https://github.com/nishantrv/MulitAgent-With-MCPs) is **v2**: the same planner rebuilt on the **Model Context Protocol**, with a fifth weather agent and a custom MCP server.
 
-```text
-.
-├── app.py                # FastAPI app entry point
-├── backend.py            # LangGraph travel workflow
-├── requirements.txt      # Python dependencies
-├── static/               # Static frontend assets
-├── templates/            # HTML templates
-└── tools/                # Flight and web search integrations
+---
+
+## 🧭 Architecture
+
+```mermaid
+flowchart LR
+    U([👤 Traveller]) --> API[FastAPI<br/>POST /api/travel]
+    API --> G
+    subgraph G[LangGraph StateGraph · PostgresSaver]
+        direction LR
+        F[✈️ Flight agent] --> H[🏨 Hotel agent] --> I[🗺️ Itinerary agent] --> Z[📝 Final agent]
+    end
+    F -.-> FT[[flight_tool.py<br/>NL → IATA route → AviationStack]]
+    H -.-> TT[[tavily_tool.py<br/>top-5 web results]]
+    Z --> API --> U
 ```
 
-## Prerequisites
+| Agent | Job |
+|---|---|
+| ✈️ **Flight** | Turns the request into a route and fetches **live flights** from AviationStack |
+| 🏨 **Hotel** | Searches the web with Tavily for hotels that match the trip |
+| 🗺️ **Itinerary** | Combines flights and hotels into a practical, budget-aware day-by-day plan |
+| 📝 **Final** | Formats everything into one clear answer |
 
-Before running the project locally, make sure you have:
+The agents share a `TravelState` (`TypedDict`) that holds the message history, each agent's results, and an **`llm_calls` counter** for cost visibility. Tool output is **truncated to 1,500 characters** before it reaches the LLM, which keeps prompts small and cheap.
 
-- Python 3.10 or newer installed
-- PostgreSQL running and accessible
-- API keys for:
-  - Groq
-  - Tavily
-  - AviationStack
+---
 
-## Environment Variables
+## 🛫 The flight tool
 
-Create a .env file in the project root with the following variables:
+`tools/flight_tool.py` works out a route from free text before calling any API:
 
-```env
-DATABASE_URL=postgresql://user:password@localhost:5432/travel_db
-GROQ_API_KEY=your_groq_api_key
-AVIATIONSTACK_API_KEY=your_aviationstack_api_key
-TAVILY_API_KEY=your_tavily_api_key
-DEFAULT_ORIGIN_IATA=DAC
+- It resolves **countries, cities, airport names or raw IATA codes** to airports, using `airportsdata` and `pycountry` plus an alias table ("UK" → GB, "UAE" → AE…).
+- Each country maps to its main hub (Japan → NRT, India → DEL, Germany → FRA…).
+- `parse_route()` handles **"from X to Y"**, departure-only, arrival-only and "all countries" queries, and returns `(dep_iata, arr_iata)`.
+- Errors are handled cleanly: missing keys, API errors and empty results. It also states plainly that AviationStack gives **flight status, not fares**.
+
+---
+
+## 📈 Observability with LangSmith
+
+LangGraph and LangChain send traces to **LangSmith** automatically when tracing is enabled through environment variables. Each agent node, LLM call and token count appears as a span, with no extra code:
+
+```ini
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=...
+LANGSMITH_PROJECT=tripmate-ai
 ```
 
-## Installation
+---
+
+## 🚀 Quickstart
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # On Windows: .venv\Scripts\activate
+git clone https://github.com/nishantrv/Multi-Agent-With-LangGraphs-LangSmith.git
+cd Multi-Agent-With-LangGraphs-LangSmith
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Running the App
+`.env`:
 
-Start the FastAPI server:
+```ini
+GROQ_API_KEY=...
+TAVILY_API_KEY=...
+AVIATIONSTACK_API_KEY=...
+DATABASE_URL=postgresql://user:password@host:5432/travel_db
+DEFAULT_ORIGIN_IATA=DUB          # used when no origin is mentioned
+```
 
 ```bash
-python app.py
+python app.py        # → http://127.0.0.1:8000
 ```
 
-Then open your browser at:
+Docker:
 
-```text
-http://127.0.0.1:8000/
+```bash
+docker build -t tripmate .
+docker run --env-file .env -p 8000:8000 tripmate
 ```
 
-## API Endpoints
-
-- GET /health - Health check
-- POST /api/travel - Submit a travel request
-
-Example request:
+### API
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/travel \
   -H "Content-Type: application/json" \
-  -d '{"message":"Plan a 3-day trip to Tokyo with a budget of $1200"}'
+  -d '{"message":"Plan a 3-day trip from Dhaka to Tokyo with a budget of $1200"}'
 ```
 
-## How the Workflow Works
+The response contains `answer`, `flight_results`, `hotel_results`, `itinerary`, `llm_calls` and a `thread_id`. Send the `thread_id` back to continue the same conversation.
 
-1. The user submits a travel request.
-2. The flight agent gathers flight-related information.
-3. The hotel agent searches for accommodation suggestions.
-4. The itinerary agent creates a practical travel plan.
-5. The final agent formats the result into a polished response.
+---
 
-## Contributing
+## 🗂️ Project layout
 
-Contributions are welcome. If you want to improve the app, add new travel features, or fix issues:
+```
+app.py               FastAPI app, UI + /api/travel + /health
+backend.py           LangGraph state, four agents, PostgresSaver
+tools/flight_tool.py Natural-language route parsing + AviationStack client
+tools/tavily_tool.py Tavily search, formatted top-5 results
+templates/ static/   Web UI
+Dockerfile
+```
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Open a pull request
+---
 
-## Acknowledgments
+## 🧰 Tech stack
 
-This project is built with the help of modern LLM tooling and travel APIs, and it is intended as a practical example of combining LangGraph agents with real-world applications.
+**LangGraph** · **LangChain** · **LangSmith** · **Groq** · **PostgreSQL** (`langgraph-checkpoint-postgres`, `psycopg`) · **FastAPI** · **Jinja2** · **Tavily** · **AviationStack** · **airportsdata** · **pycountry** · **Docker**
+
+---
+
+<div align="center">
+
+Built by **[Nishant](https://github.com/nishantrv)**. If this was useful, a ⭐ is appreciated.
+
+</div>
